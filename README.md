@@ -13,9 +13,14 @@ Built for GRBL-style pen plotters (defaults match an 80×80 mm bed, pen up `Z5` 
 Grab a ready-to-run build from the [**Releases**](https://github.com/muaz978/PlotterStudio/releases) page:
 
 - **macOS** — download `PlotterStudio-macOS.zip`, unzip, open `PlotterStudio.app`. First launch: right-click → **Open** (it's unsigned).
-- **Windows** — download `PlotterStudio-Windows.zip`, unzip, run `PlotterStudio.exe`. If SmartScreen warns: **More info → Run anyway**.
+- **Windows** — download `PlotterStudio-Windows.zip`, unzip, run `PlotterStudio.exe`.
+  - Windows SmartScreen may show a blue **"Windows protected your PC"** box because the app is new and unsigned (not because it's unsafe). Click **More info → Run anyway**.
+  - To silence it entirely on your PC: right-click the ZIP → **Properties** → tick **Unblock** → OK, *then* extract.
+  - Prefer to verify the download first? Compare its SHA-256 to the `.sha256` file on the release: `Get-FileHash PlotterStudio-Windows.zip -Algorithm SHA256`.
 
 `potrace` is bundled inside both, so there's nothing else to install.
+
+> **Why the warning?** The app isn't code-signed (a signing certificate for Windows costs money, and free options require an approved open-source signing program). The SHA-256 checksums on each release let you confirm the download is authentic in the meantime.
 
 ---
 
