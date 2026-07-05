@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller / builds
+build/
+dist/
+*.spec
+
+# potrace fetched locally by run.bat
+/bin/
+potrace.zip
+potrace_tmp/
+
+# OS cruft
+.DS_Store
