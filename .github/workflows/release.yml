@@ -1,11 +1,12 @@
 name: release
 
-# Build standalone binaries for macOS + Windows and attach them to a GitHub
-# Release whenever a version tag (v*) is pushed.
+# Build standalone binaries for macOS + Windows, sign the Windows build with
+# SignPath (once configured), and attach everything to a GitHub Release when a
+# version tag (v*) is pushed.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: {}   # allow manual runs from the Actions tab
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -21,6 +22,10 @@ jobs:
           - os: windows-latest
             artifact: PlotterStudio-Windows
     runs-on: ${{ matrix.os }}
+    # SIGN is "true" only when the SignPath token secret is present, so the
+    # pipeline keeps working (unsigned) until you finish SignPath setup.
+    env:
+      SIGN: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,12 +51,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin | Out-Null
           Copy-Item potrace_tmp/potrace-1.16.win64/potrace.exe bin/
 
+      # ---------- build ----------
       - name: Build app (macOS)
         if: runner.os == 'macOS'
         run: |
           pyinstaller --noconfirm --windowed --name PlotterStudio \
             --add-binary "$(command -v potrace):bin" plotter_studio.py
-          cd dist && zip -qr "../${{ matrix.artifact }}.zip" PlotterStudio.app
 
       - name: Build app (Windows)
         if: runner.os == 'Windows'
@@ -59,18 +64,59 @@ jobs:
         run: |
           pyinstaller --noconfirm --onefile --windowed --name PlotterStudio `
             --add-binary "bin/potrace.exe;bin" plotter_studio.py
+
+      # ---------- sign the Windows exe with SignPath (when configured) ----------
+      - name: Upload unsigned exe for signing
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlotterStudio-unsigned
+          path: dist/PlotterStudio.exe
+
+      - name: Sign with SignPath
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Swap in signed exe
+        if: runner.os == 'Windows' && env.SIGN == 'true'
+        shell: pwsh
+        run: Copy-Item signed/PlotterStudio.exe dist/PlotterStudio.exe -Force
+
+      # ---------- package + checksum ----------
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist && zip -qr "../${{ matrix.artifact }}.zip" PlotterStudio.app && cd ..
+          shasum -a 256 "${{ matrix.artifact }}.zip" > "${{ matrix.artifact }}.zip.sha256"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
           Compress-Archive -Path dist/PlotterStudio.exe -DestinationPath "${{ matrix.artifact }}.zip" -Force
+          (Get-FileHash "${{ matrix.artifact }}.zip" -Algorithm SHA256).Hash | Out-File -Encoding ascii "${{ matrix.artifact }}.zip.sha256"
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}.zip
+          files: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.zip.sha256
           draft: false
           generate_release_notes: true
           body: |
-            Standalone builds of Plotter Studio (image -> SVG + plotter G-code).
+            Standalone builds of Plotter Studio (image -> SVG + plotter G-code). potrace is bundled inside both.
 
-            - macOS: unzip and open PlotterStudio.app. First launch: right-click -> Open (unsigned app), or run `xattr -dr com.apple.quarantine PlotterStudio.app`.
-            - Windows: unzip and run PlotterStudio.exe. SmartScreen may warn on an unsigned app -> More info -> Run anyway.
+            - Windows: unzip and run PlotterStudio.exe. (Signed with SignPath once configured; until then SmartScreen -> More info -> Run anyway.)
+            - macOS: unzip and open PlotterStudio.app. First launch: right-click -> Open (unsigned), or run `xattr -dr com.apple.quarantine PlotterStudio.app`.
 
-            potrace is bundled inside both, so nothing else to install.
+            Verify a download with the matching .sha256 file.
