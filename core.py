@@ -5,6 +5,7 @@ image -> potrace outline trace -> polylines -> fit to bed -> SVG + G-code.
 """
 import os
 import re
+import sys
 import math
 import shutil
 import tempfile
@@ -28,18 +29,21 @@ def deps_status():
 
 
 def find_potrace():
-    # PATH first, then a bundled ./bin/potrace next to the app (PyInstaller builds)
-    p = shutil.which("potrace")
-    if p:
-        return p
-    here = os.path.dirname(os.path.abspath(__file__))
-    for cand in (os.path.join(here, "bin", "potrace"),
-                 os.path.join(here, "bin", "potrace.exe"),
-                 os.path.join(here, "potrace"),
-                 os.path.join(here, "potrace.exe")):
-        if os.path.exists(cand):
-            return cand
-    return None
+    # 1) bundled inside a frozen PyInstaller app (mac .app or Windows .exe)
+    bases = []
+    if getattr(sys, "frozen", False):
+        bases.append(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)))
+        bases.append(os.path.dirname(sys.executable))
+    bases.append(os.path.dirname(os.path.abspath(__file__)))
+    for base in bases:
+        for cand in (os.path.join(base, "bin", "potrace"),
+                     os.path.join(base, "bin", "potrace.exe"),
+                     os.path.join(base, "potrace"),
+                     os.path.join(base, "potrace.exe")):
+            if os.path.exists(cand):
+                return cand
+    # 2) system PATH
+    return shutil.which("potrace")
 
 
 def vectorize(image_path, threshold=128, invert=False, despeckle=8,

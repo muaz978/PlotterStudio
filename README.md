@@ -8,7 +8,18 @@ Built for GRBL-style pen plotters (defaults match an 80×80 mm bed, pen up `Z5` 
 
 ---
 
-## Quick start (recommended)
+## Download (no setup)
+
+Grab a ready-to-run build from the [**Releases**](https://github.com/muaz978/PlotterStudio/releases) page:
+
+- **macOS** — download `PlotterStudio-macOS.zip`, unzip, open `PlotterStudio.app`. First launch: right-click → **Open** (it's unsigned).
+- **Windows** — download `PlotterStudio-Windows.zip`, unzip, run `PlotterStudio.exe`. If SmartScreen warns: **More info → Run anyway**.
+
+`potrace` is bundled inside both, so there's nothing else to install.
+
+---
+
+## Quick start (from source)
 
 No Python knowledge needed. The launcher sets everything up on first run.
 

@@ -1,0 +1,76 @@
+name: release
+
+# Build standalone binaries for macOS + Windows and attach them to a GitHub
+# Release whenever a version tag (v*) is pushed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}   # allow manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: PlotterStudio-macOS
+          - os: windows-latest
+            artifact: PlotterStudio-Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install -r requirements.txt
+
+      - name: Install potrace (macOS)
+        if: runner.os == 'macOS'
+        run: brew install potrace
+
+      - name: Fetch potrace (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://potrace.sourceforge.net/download/1.16/potrace-1.16.win64.zip' -OutFile potrace.zip
+          Expand-Archive potrace.zip -DestinationPath potrace_tmp -Force
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          Copy-Item potrace_tmp/potrace-1.16.win64/potrace.exe bin/
+
+      - name: Build app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --noconfirm --windowed --name PlotterStudio \
+            --add-binary "$(command -v potrace):bin" plotter_studio.py
+          cd dist && zip -qr "../${{ matrix.artifact }}.zip" PlotterStudio.app
+
+      - name: Build app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name PlotterStudio `
+            --add-binary "bin/potrace.exe;bin" plotter_studio.py
+          Compress-Archive -Path dist/PlotterStudio.exe -DestinationPath "${{ matrix.artifact }}.zip" -Force
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip
+          draft: false
+          generate_release_notes: true
+          body: |
+            Standalone builds of Plotter Studio (image -> SVG + plotter G-code).
+
+            - macOS: unzip and open PlotterStudio.app. First launch: right-click -> Open (unsigned app), or run `xattr -dr com.apple.quarantine PlotterStudio.app`.
+            - Windows: unzip and run PlotterStudio.exe. SmartScreen may warn on an unsigned app -> More info -> Run anyway.
+
+            potrace is bundled inside both, so nothing else to install.
