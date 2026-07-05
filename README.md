@@ -41,11 +41,14 @@ The first launch creates a private environment, installs the two Python packages
 
 1. **Open image** (PNG/JPG/BMP/…). High-contrast line art or solid shapes trace best.
 2. Adjust **Threshold / Despeckle / Smoothing** (it re-traces live) and **Invert** for light-on-dark art.
-3. Set **bed size**, **art size**, **pen Z heights**, and **feeds**.
+3. Set **bed size**, **art size**, **origin** (centered or bottom-left corner), **pen Z heights**, and **feeds**.
 4. **Rotate / Flip** if needed; the preview shows the exact toolpath (ink in blue, pen-up travel dashed).
 5. **Export SVG** (for Rayforge / LightBurn / Inkscape) or **Export G-code** (stream in UGS).
 
-An out-of-bounds warning appears if the art would exceed the bed's soft limits.
+The contour order is automatically optimized to **minimize pen-up travel**, the
+preview reports ink length, travel, and estimated time, and your settings are
+**remembered between sessions**. An out-of-bounds warning appears if the art
+would exceed the bed's soft limits.
 
 ---
 

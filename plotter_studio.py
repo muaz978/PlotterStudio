@@ -10,10 +10,13 @@ Run:  python plotter_studio.py     (or double-click run.command / run.bat)
 """
 import os
 import sys
+import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import core
+
+CONFIG_PATH = os.path.expanduser("~/.plotter_studio.json")
 
 try:
     from PIL import Image, ImageTk
@@ -35,7 +38,7 @@ TRAVEL = "#d9b48a"
 class PlotterStudio(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Plotter Studio")
+        self.title("Plotter Studio v%s" % core.__version__)
         self.geometry("1040x700")
         self.minsize(940, 620)
         self.configure(bg=BG)
@@ -56,8 +59,40 @@ class PlotterStudio(tk.Tk):
         self._init_style()
         self._build_menu()
         self._build_ui()
+        self._load_settings()
         self._report_env()
         self.bind("<Configure>", lambda e: self._draw() if e.widget is self else None)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ---------------------------------------------------------------- settings
+    def _settings_map(self):
+        return {"thresh": self.v_thresh, "desp": self.v_desp, "smooth": self.v_smooth,
+                "invert": self.v_invert, "bedw": self.v_bedw, "bedh": self.v_bedh,
+                "size": self.v_size, "origin": self.v_origin, "margin": self.v_margin,
+                "penup": self.v_penup, "pendn": self.v_pendn, "fdraw": self.v_fdraw,
+                "ftrav": self.v_ftrav, "travel": self.v_travel}
+
+    def _load_settings(self):
+        try:
+            with open(CONFIG_PATH) as f:
+                data = json.load(f)
+            for k, var in self._settings_map().items():
+                if k in data:
+                    var.set(data[k])
+        except Exception:
+            pass
+
+    def _save_settings(self):
+        try:
+            data = {k: var.get() for k, var in self._settings_map().items()}
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def _on_close(self):
+        self._save_settings()
+        self.destroy()
 
     # ---------------------------------------------------------------- style
     def _init_style(self):
@@ -189,6 +224,13 @@ class PlotterStudio(tk.Tk):
         self.v_bedw = self._field(p, "Bed width", 80.0)
         self.v_bedh = self._field(p, "Bed height", 80.0)
         self.v_size = self._field(p, "Art longest side", 60.0)
+        orow = ttk.Frame(p, style="Card.TFrame"); orow.pack(fill="x", pady=3)
+        ttk.Label(orow, text="Origin", style="Card.TLabel", width=15).pack(side="left")
+        self.v_origin = tk.StringVar(value="center")
+        ttk.Combobox(orow, textvariable=self.v_origin, width=7, state="readonly",
+                     values=("center", "corner")).pack(side="right")
+        self.v_origin.trace_add("write", lambda *a: self._refit_draw())
+        self.v_margin = self._field(p, "Corner margin", 3.0)
 
         ttk.Label(p, text="PEN & FEEDS", style="H.TLabel").pack(anchor="w", pady=(16, 0))
         self.v_penup = self._field(p, "Pen up Z", 5.0)
@@ -278,8 +320,10 @@ class PlotterStudio(tk.Tk):
             return
         self.loops_t = core.transform_loops(self.loops_raw, self.rotate, self.flip_h, self.flip_v)
         self.fit = core.compute_fit(self.loops_t, float(self.v_size.get()))
-        self.loops_mm = core.to_bed(self.loops_t, self.fit,
-                                    float(self.v_bedw.get()), float(self.v_bedh.get()))
+        placed = core.to_bed(self.loops_t, self.fit,
+                             float(self.v_bedw.get()), float(self.v_bedh.get()),
+                             origin=self.v_origin.get(), margin=float(self.v_margin.get()))
+        self.loops_mm = core.order_for_travel(placed)      # minimise pen-up travel
 
     def _refit_draw(self):
         try:
@@ -290,10 +334,12 @@ class PlotterStudio(tk.Tk):
         if self.loops_mm:
             s = core.stats(self.loops_mm)
             oob = core.out_of_bounds(self.loops_mm, self.v_bedw.get(), self.v_bedh.get())
-            mins = s["draw_mm"] / max(1, int(self.v_fdraw.get()))
+            mins = (s["draw_mm"] / max(1, int(self.v_fdraw.get()))
+                    + s["travel_mm"] / max(1, int(self.v_ftrav.get())))
             self.info.config(
-                text="%d contours · %.0f mm of ink · ~%.1f min%s"
-                     % (s["contours"], s["draw_mm"], mins, "  ·  OUT OF BOUNDS" if oob else ""),
+                text="%d contours · %.0f mm ink · %.0f mm travel · ~%.1f min%s"
+                     % (s["contours"], s["draw_mm"], s["travel_mm"], mins,
+                        "  ·  OUT OF BOUNDS" if oob else ""),
                 foreground="#b00020" if oob else MUTE)
             self._set("Traced %d contours · %.1f × %.1f mm"
                       % (s["contours"], self.fit["w"], self.fit["h"]),
@@ -374,6 +420,7 @@ class PlotterStudio(tk.Tk):
             return
         open(p, "w").write(core.build_svg(self.loops_t, self.fit))
         self.last_dir = os.path.dirname(p)
+        self._save_settings()
         self._set("Saved SVG → " + p)
 
     def export_gcode(self):
@@ -395,6 +442,7 @@ class PlotterStudio(tk.Tk):
             self.loops_mm, float(self.v_penup.get()), float(self.v_pendn.get()),
             int(self.v_fdraw.get()), int(self.v_ftrav.get())))
         self.last_dir = os.path.dirname(p)
+        self._save_settings()
         self._set("Saved G-code → " + p)
 
     def _base(self):
@@ -403,8 +451,8 @@ class PlotterStudio(tk.Tk):
     def _about(self):
         messagebox.showinfo(
             "About Plotter Studio",
-            "Plotter Studio\n\nImage → high-quality vector → SVG + plotter G-code.\n"
-            "Tracing by potrace. Built for GRBL-style pen plotters.")
+            "Plotter Studio v%s\n\nImage → high-quality vector → SVG + plotter G-code.\n"
+            "Tracing by potrace. Built for GRBL-style pen plotters." % core.__version__)
 
 
 def main():

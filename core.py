@@ -11,6 +11,8 @@ import shutil
 import tempfile
 import subprocess
 
+__version__ = "0.1.1"
+
 try:
     from PIL import Image, ImageFilter, ImageOps
 except Exception:
@@ -121,17 +123,44 @@ def compute_fit(loops, target_mm):
             "w": (maxx - minx) * s, "h": (maxy - miny) * s}
 
 
-def to_bed(loops, fit, bed_w, bed_h):
-    s = fit["scale"]; cx, cy = bed_w / 2.0, bed_h / 2.0
-    mx, my = (fit["minx"] + fit["maxx"]) / 2, (fit["miny"] + fit["maxy"]) / 2
-    out = [[((q[0] - mx) * s + cx, -(q[1] - my) * s + cy) for q in lp] for lp in loops]
-    out.sort(key=_bbox_area, reverse=True)
-    return out
+def to_bed(loops, fit, bed_w, bed_h, origin="center", margin=3.0):
+    """Place art on the bed (machine Y up). origin: 'center' or 'corner'."""
+    s = fit["scale"]
+    minx, maxx = fit["minx"], fit["maxx"]
+    miny, maxy = fit["miny"], fit["maxy"]
+    if origin == "corner":                      # bottom-left, offset by margin
+        def tb(q):
+            return ((q[0] - minx) * s + margin, margin + (maxy - q[1]) * s)
+    else:                                        # centered on the bed
+        mx, my = (minx + maxx) / 2, (miny + maxy) / 2
+        cx, cy = bed_w / 2.0, bed_h / 2.0
+
+        def tb(q):
+            return ((q[0] - mx) * s + cx, -(q[1] - my) * s + cy)
+    return [[tb(q) for q in lp] for lp in loops]
 
 
-def _bbox_area(lp):
-    xs = [p[0] for p in lp]; ys = [p[1] for p in lp]
-    return (max(xs) - min(xs)) * (max(ys) - min(ys))
+def order_for_travel(loops, start=(0.0, 0.0)):
+    """Greedy nearest-neighbour ordering (with endpoint reversal) to cut the
+    pen-up travel between contours."""
+    remaining = [list(lp) for lp in loops]
+    ordered = []
+    cur = start
+    while remaining:
+        best, best_d, rev = 0, float("inf"), False
+        for idx, lp in enumerate(remaining):
+            ds = math.dist(cur, lp[0])
+            de = math.dist(cur, lp[-1])
+            if ds < best_d:
+                best, best_d, rev = idx, ds, False
+            if de < best_d:
+                best, best_d, rev = idx, de, True
+        lp = remaining.pop(best)
+        if rev:
+            lp.reverse()
+        ordered.append(lp)
+        cur = lp[-1]
+    return ordered
 
 
 def out_of_bounds(loops_mm, bed_w, bed_h):
@@ -139,10 +168,13 @@ def out_of_bounds(loops_mm, bed_w, bed_h):
                for lp in loops_mm for x, y in lp)
 
 
-def stats(loops_mm):
+def stats(loops_mm, start=(0.0, 0.0)):
     draw = sum(math.dist(lp[i], lp[i + 1]) for lp in loops_mm for i in range(len(lp) - 1))
     seg = sum(len(lp) - 1 for lp in loops_mm)
-    return {"contours": len(loops_mm), "segments": seg, "draw_mm": draw}
+    travel, cur = 0.0, start
+    for lp in loops_mm:
+        travel += math.dist(cur, lp[0]); cur = lp[-1]
+    return {"contours": len(loops_mm), "segments": seg, "draw_mm": draw, "travel_mm": travel}
 
 
 def build_gcode(loops_mm, pen_up=5.0, pen_down=0.0, f_draw=150, f_travel=250):
